@@ -65,7 +65,6 @@
                         <pax.exam.service.timeout>30000</pax.exam.service.timeout>
                         <karaf.version>${karaf.version}</karaf.version>
                         <project.version>${project.version}</project.version>
-                        <!--<scalatest.artifact>scalatest_${scala.dep.version}</scalatest.artifact>-->
                         <scala.dep.version>${scala.dep.version}</scala.dep.version>
                     </systemPropertyVariables>
                 </configuration>

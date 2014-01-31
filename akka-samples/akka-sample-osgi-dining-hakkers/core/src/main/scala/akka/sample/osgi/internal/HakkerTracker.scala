@@ -19,7 +19,6 @@ object HakkerTracker {
   case class State private (eatingCounts: Map[String, Int]) {
     def updated(event: DomainEvent): State = event match {
       case StartedEating(name) =>
-        println("# StartedEating: " + name)
         val c = eatingCounts.getOrElse(name, 0) + 1
         copy(eatingCounts = eatingCounts + (name -> c))
       case StoppedEating(name) =>

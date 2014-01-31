@@ -145,7 +145,7 @@ object AkkaBuild extends Build {
   lazy val actor = Project(
     id = "akka-actor",
     base = file("akka-actor"),
-    settings = defaultSettings ++ formatSettings ++ scaladocSettings ++ javadocSettings ++ Seq(
+    settings = defaultSettings ++ formatSettings ++ scaladocSettings ++ javadocSettings ++ OSGi.actor ++ Seq(
       // to fix scaladoc generation
       fullClasspath in doc in Compile <<= fullClasspath in Compile,
       libraryDependencies ++= Dependencies.actor,
@@ -347,46 +347,12 @@ object AkkaBuild extends Build {
     )
   )
 
-
-  // All of this should be removed and akka-actor made into abundle instead
-  // right now it only copies the reference.conf from akka-actor
-  val ActorMakeOsgiConfiguration = TaskKey[Seq[File]]("actor-make-osgi-configuration", "Copy reference.conf from akka modules for akka-osgi")
-  val ActorOsgiConfigurationReference = TaskKey[Seq[(File, String)]]("actor-osgi-configuration-reference", "The list of all configuration files to be bundled in an osgi bundle, as well as project name.")
-
-  import Project.Initialize
-  def ActorOsgiConfigurationReferenceAction(projects: Seq[Project]): Initialize[Task[Seq[(File, String)]]] = {
-    val directories: Initialize[Seq[File]] = projects.map(resourceDirectory in Compile in _).join
-    val names: Initialize[Seq[String]] = projects.map(normalizedName in _).join
-    directories zip names map { case (dirs, ns) =>
-        for {
-          (dir, project) <- dirs zip ns
-          val conf = dir / "reference.conf"
-          if conf.exists
-        } yield conf -> project
-      }
-  }
-
-  def makeOsgiConfigurationFiles(includes: Seq[(File, String)], target: File, streams: TaskStreams): Seq[File] = {
-    val toCopy =
-      for {
-        (file, project) <- includes
-        val toFile = target / ("reference.conf")
-      } yield file -> toFile
-    IO.copy(toCopy)
-    val copiedResourceFileLocations = toCopy.map(_._2)
-    copiedResourceFileLocations
-  }
-
   lazy val osgi = Project(
     id = "akka-osgi",
     base = file("akka-osgi"),
     dependencies = Seq(actor),
     settings = defaultSettings ++ formatSettings ++ scaladocSettings ++ javadocSettings ++ OSGi.osgi ++ Seq(
       libraryDependencies ++= Dependencies.osgi,
-      cleanFiles <+= baseDirectory { base => base / "src/main/resources" } ,
-      ActorOsgiConfigurationReference <<= ActorOsgiConfigurationReferenceAction(Seq(actor)),
-      ActorMakeOsgiConfiguration <<= (ActorOsgiConfigurationReference, resourceManaged in Compile, streams) map makeOsgiConfigurationFiles,
-      resourceGenerators in Compile <+= ActorMakeOsgiConfiguration,
       parallelExecution in Test := false,
       reportBinaryIssues := () // disable bin comp check
     )
@@ -1017,8 +983,15 @@ object AkkaBuild extends Build {
       packagedArtifact in (Compile, packageBin) <<= (artifact in (Compile, packageBin), OsgiKeys.bundle).identityMap
     )
 
-    //akka-actor is wrapped into akka-osgi to simplify OSGi deployement.
-
+    val actor = osgiSettings ++ Seq(
+      OsgiKeys.exportPackage := Seq("akka*"),
+      OsgiKeys.privatePackage := Seq("akka.osgi.impl"),
+      //akka-actor packages are not imported, as contained in the CP
+      OsgiKeys.importPackage := (osgiOptionalImports map optionalResolution) ++ Seq("!sun.misc", scalaImport(), configImport(), "*"),
+      // dynamicImportPackage needed for loading classes defined in configuration
+      OsgiKeys.dynamicImportPackage := Seq("*")
+     ) 
+      
     val agent = exports(Seq("akka.agent.*"))
 
     val camel = exports(Seq("akka.camel.*"))
@@ -1029,14 +1002,7 @@ object AkkaBuild extends Build {
 
     val mailboxesCommon = exports(Seq("akka.actor.mailbox.*"), imports = Seq(protobufImport()))
 
-    val osgi = osgiSettings ++ Seq(
-      OsgiKeys.exportPackage := Seq("akka*"), //exporting akka packages enforces bnd to aggregate akka-actor packages in the bundle
-      OsgiKeys.privatePackage := Seq("akka.osgi.impl"),
-      //akka-actor packages are not imported, as contained in the CP
-      OsgiKeys.importPackage := (osgiOptionalImports map optionalResolution) ++ Seq("!sun.misc", scalaImport(),configImport(), "*"),
-      // FIXME #3839: Remove this when the proper bundle delegating class loader is in place
-      OsgiKeys.dynamicImportPackage := Seq("*")
-     )
+    val osgi = exports(Seq("akka.osgi.*"))
 
     val osgiDiningHakkersSampleApi = exports(Seq("akka.sample.osgi.api"))
 
@@ -1062,26 +1028,11 @@ object AkkaBuild extends Build {
 
     val zeroMQ = exports(Seq("akka.zeromq.*"), imports = Seq(protobufImport()) )
 
-    val osgiOptionalImports = Seq("akka.remote",
-      "akka.remote.transport.netty",
-      "akka.remote.security.provider",
-      "akka.remote.netty",
-      "akka.remote.routing",
-      "akka.remote.transport",
-      "akka.remote.serialization",
-      "akka.persistence.serialization",
-      "akka.cluster",
-      "akka.cluster.routing",
-      "akka.cluster.protobuf",
-      "akka.transactor",
-      "akka.agent",
-      "akka.dataflow",
-      "akka.actor.mailbox",
-      "akka.camel.internal",
-      "akka.camel.javaapi",
-      "akka.camel",
-      "akka.camel.internal.component",
-      "akka.zeromq",
+    val osgiOptionalImports = Seq(
+      // needed because testkit is normally not used in the application bundle,
+      // but it should still be included as transitive dependency and used by BundleDelegatingClassLoader
+      // to be able to find refererence.conf
+      "akka.testkit", 
       "com.google.protobuf")
 
     def exports(packages: Seq[String] = Seq(), imports: Seq[String] = Nil) = osgiSettings ++ Seq(
