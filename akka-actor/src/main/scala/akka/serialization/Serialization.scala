@@ -171,23 +171,14 @@ class Serialization(val system: ExtendedActorSystem) extends Extension {
    * By default always contains the following mapping: "java" -> akka.serialization.JavaSerializer
    */
   private val serializers: Map[String, Serializer] =
-    // FIXME #3839: Remove this change when the proper bundle delegating class loader is in place
-    for {
-      (k: String, v: String) ← settings.Serializers
-      s ← serializerOf(v).toOption
-    } yield k -> s
+    for ((k: String, v: String) ← settings.Serializers) yield k -> serializerOf(v).get
 
   /**
    *  bindings is a Seq of tuple representing the mapping from Class to Serializer.
    *  It is primarily ordered by the most specific classes first, and secondly in the configured order.
    */
   private[akka] val bindings: immutable.Seq[ClassSerializer] =
-    // FIXME #3839: Remove this change when the proper bundle delegating class loader is in place
-    sort(for {
-      (k: String, v: String) ← settings.SerializationBindings
-      if v != "none"
-      c ← system.dynamicAccess.getClassFor[Any](k).toOption
-    } yield (c, serializers(v))).to[immutable.Seq]
+    sort(for ((k: String, v: String) ← settings.SerializationBindings if v != "none") yield (system.dynamicAccess.getClassFor[Any](k).get, serializers(v))).to[immutable.Seq]
 
   /**
    * Sort so that subtypes always precede their supertypes, but without
